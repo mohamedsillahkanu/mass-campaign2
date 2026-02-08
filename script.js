@@ -122,18 +122,17 @@ function showDHMTScreen(){
     document.getElementById('dhmtScreen').style.display='block';
     var ut=document.getElementById('dhmtUserTag');if(ut)ut.textContent=state.currentUser.name.split(' ')[0].toUpperCase();
     document.getElementById('dhmtDistrict').textContent=state.geoInfo.district||'—';
-    document.getElementById('dhmt_from').value=state.geoInfo.community||state.geoInfo.district||'';
     var df=document.getElementById('dhmt_date');if(df&&!df.value)df.value=new Date().toISOString().split('T')[0];
     renderDHMTHistory();
 }
 function submitDHMT(){
     var date=document.getElementById('dhmt_date').value,batch=document.getElementById('dhmt_batch').value.trim();
     var type=document.getElementById('dhmt_type').value,qty=parseInt(document.getElementById('dhmt_qty').value)||0;
-    var to=document.getElementById('dhmt_to_phu').value.trim(),from=document.getElementById('dhmt_from').value;
+    var to=document.getElementById('dhmt_to_phu').value.trim();
     var notes=document.getElementById('dhmt_notes').value.trim();
     if(!date||!type||qty<1||!to){showNotification('Fill date, type, qty, PHU name','error');return;}
     var rec={id:'DHMT-'+Date.now().toString(36).toUpperCase(),timestamp:new Date().toISOString(),date:date,batch:batch,type:type,quantity:qty,
-        toPhu:to,from:from,notes:notes,district:state.geoInfo.district,recordedBy:state.currentUser.name,userId:state.currentUser.id,synced:false};
+        toPhu:to,notes:notes,district:state.geoInfo.district,recordedBy:state.currentUser.name,userId:state.currentUser.id,synced:false};
     state.dhmtRecords.push(rec);saveToStorage();showNotification(qty+' '+type+' ITNs → '+to,'success');
     sendToSheet('dhmt_distribution',rec);renderDHMTHistory();
     ['dhmt_batch','dhmt_qty','dhmt_to_phu','dhmt_notes'].forEach(function(id){document.getElementById(id).value='';});

@@ -33,7 +33,7 @@ function checkBothLoaded(){var el=document.getElementById('csvStatus');if(!el)re
     if(csvLoaded&&usersLoaded){el.innerHTML='<div class="csv-loaded"><span style="font-size:16px;">✓</span> <span>Loaded <strong>'+cascadingData.length+'</strong> points, <strong>'+Object.keys(USERS_DB).length+'</strong> users</span></div>';populateCredentialsTable();
         // Refresh phuName in state from CSV (fixes stale localStorage)
         if(state.currentDP&&state.currentDP.id){var cphu=cascadingData.find(function(r){return r.dp_id===state.currentDP.id;});
-            if(cphu&&cphu.phu_name){state.geoInfo.phuName=cphu.phu_name;state.currentDP.phuName=cphu.phu_name;saveToStorage();}
+            if(cphu&&cphu.phu){state.geoInfo.phuName=cphu.phu;state.currentDP.phuName=cphu.phu;saveToStorage();}
         }
         // Re-populate dropdowns if already on a screen
         if(state.isLoggedIn&&state.currentUser){
@@ -49,7 +49,7 @@ function populateCredentialsTable(){var tb=document.getElementById('credTableBod
     for(var uid in USERS_DB){var u=USERS_DB[uid];
         var dist='—',chief='—',phu='—',dp='—';
         if(csvLoaded){var r=cascadingData.find(function(x){return x.dp_id===u.dp_id;});
-            if(r){dist=r.district||'—';chief=r.chiefdom||'—';phu=r.phu_name||'—';dp=r.distribution_point||'—';}}
+            if(r){dist=r.district||'—';chief=r.chiefdom||'—';phu=r.phu||'—';dp=r.distribution_point||'—';}}
         var badge='';if(u.role==='dhmt')badge='<span style="background:#6f42c1;color:#fff;padding:2px 6px;border-radius:8px;font-size:9px;">DHMT</span>';
         else if(u.role==='phu')badge='<span style="background:#e91e8c;color:#fff;padding:2px 6px;border-radius:8px;font-size:9px;">PHU</span>';
         else badge='<span style="background:#0056a8;color:#fff;padding:2px 6px;border-radius:8px;font-size:9px;">FIELD</span>';
@@ -68,7 +68,7 @@ function onUserIdInput(){var uid=document.getElementById('loginUserId').value.tr
     document.getElementById('assignRole').value=ROLE_LABELS[u.role]||u.role;
     document.getElementById('assignDP').value=dpRow.distribution_point||'';
     document.getElementById('assignDistrict').value=dpRow.district||'';
-    document.getElementById('assignCommunity').value=dpRow.phu_name||'';
+    document.getElementById('assignCommunity').value=dpRow.phu||'';
     var title=document.getElementById('assignTitleText'),titleDiv=document.getElementById('assignTitle');
     if(u.role==='dhmt'){title.textContent='DHMT — DISTRICT LEVEL';titleDiv.style.background='#6f42c1';}
     else if(u.role==='phu'){title.textContent='PHU — HEALTH UNIT LEVEL';titleDiv.style.background='#e91e8c';}
@@ -98,11 +98,11 @@ function handleLogin(){
     var dp=cascadingData.find(function(r){return r.dp_id===u.dp_id;});
     if(!dp){err.textContent='DP '+u.dp_id+' not found';return;}
     state.isLoggedIn=true;state.currentUser={id:uid,name:u.name,role:u.role};
-    state.currentDP={id:dp.dp_id,name:dp.distribution_point,district:dp.district,chiefdom:dp.chiefdom||'',phuName:dp.phu_name||''};
-    state.geoInfo={district:dp.district,chiefdom:dp.chiefdom||'',phuName:dp.phu_name||'',distributionPoint:dp.distribution_point};
+    state.currentDP={id:dp.dp_id,name:dp.distribution_point,district:dp.district,chiefdom:dp.chiefdom||'',phuName:dp.phu||''};
+    state.geoInfo={district:dp.district,chiefdom:dp.chiefdom||'',phuName:dp.phu||'',distributionPoint:dp.distribution_point};
     // Also refresh phuName from cascading data for any stale state
     var cphu=cascadingData.find(function(r){return r.dp_id===dp.dp_id;});
-    if(cphu&&cphu.phu_name){state.geoInfo.phuName=cphu.phu_name;state.currentDP.phuName=cphu.phu_name;}
+    if(cphu&&cphu.phu){state.geoInfo.phuName=cphu.phu;state.currentDP.phuName=cphu.phu;}
     saveToStorage();routeUser();showNotification('Welcome, '+u.name+'!','success');
 }
 function routeUser(){
@@ -111,8 +111,8 @@ function routeUser(){
     document.getElementById('dhmtScreen').style.display='none';
     document.getElementById('phuScreen').style.display='none';
     var role=state.currentUser.role;
-    if(role==='dhmt'){showDHMTScreen();}
-    else if(role==='phu'){showPHUScreen();}
+    if(role==='dhmt'){showDHMTScreen();if(csvLoaded)setTimeout(populateDhmtPhuDropdown,100);}
+    else if(role==='phu'){showPHUScreen();if(csvLoaded)setTimeout(populatePhuDpDropdown,100);}
     else{showAppScreen();}
 }
 function handleLogout(){if(!confirm('Log out?'))return;state.isLoggedIn=false;state.currentUser=null;state.currentDP=null;saveToStorage();
@@ -129,10 +129,30 @@ function toggleTypeQty(prefix,type,checked){
     if(checked&&!existingRow){
         var row=document.createElement('div');row.className='itn-qty-row';row.id=prefix+'_qty_'+type;
         var cls=type.toLowerCase();
-        row.innerHTML='<span class="itn-qty-label '+cls+'">'+type+'</span><input type="number" class="form-input" id="'+prefix+'_qty_val_'+type+'" min="1" placeholder="Quantity for '+type+'..." required><span style="font-size:10px;color:#999;">ITNs</span>';
+        row.innerHTML='<span class="itn-qty-label '+cls+'">'+type+'</span><input type="number" class="form-input" id="'+prefix+'_qty_val_'+type+'" min="1" placeholder="Quantity for '+type+'..." required oninput="updateTypeTotal(\''+prefix+'\')"><span style="font-size:10px;color:#999;">ITNs</span>';
         container.appendChild(row);
         document.getElementById(prefix+'_qty_val_'+type).focus();
     }else if(!checked&&existingRow){existingRow.remove();}
+    // Ensure total row exists
+    ensureTotalRow(prefix);
+    updateTypeTotal(prefix);
+}
+function ensureTotalRow(prefix){
+    var container=document.getElementById(prefix+'_type_qtys');if(!container)return;
+    var existing=document.getElementById(prefix+'_total_row');
+    if(!existing){
+        var row=document.createElement('div');row.className='itn-total-row';row.id=prefix+'_total_row';
+        row.innerHTML='<span class="itn-total-label">TOTAL ITNs</span><span class="itn-total-value" id="'+prefix+'_total_val">0</span>';
+        container.appendChild(row);
+    }
+}
+function updateTypeTotal(prefix){
+    var container=document.getElementById(prefix+'_type_qtys');if(!container)return;
+    var inputs=container.querySelectorAll('.itn-qty-row input[type="number"]');
+    var total=0;inputs.forEach(function(inp){total+=parseInt(inp.value)||0;});
+    var el=document.getElementById(prefix+'_total_val');if(el)el.textContent=total.toLocaleString();
+    var totalRow=document.getElementById(prefix+'_total_row');
+    if(totalRow){totalRow.style.display=inputs.length>0?'flex':'none';}
 }
 function getTypeQuantities(prefix){
     var results=[];var container=document.getElementById(prefix+'_type_qtys');if(!container)return results;
@@ -147,8 +167,8 @@ function getTypeQuantities(prefix){
 }
 function clearTypeCheckboxes(prefix){
     var container=document.getElementById(prefix+'_type_qtys');if(container)container.innerHTML='';
-    var form=container?container.closest('form')||container.closest('.form-content'):null;
-    if(form){var checks=form.querySelectorAll('.itn-check');checks.forEach(function(cb){cb.checked=false;});}
+    var parent=container?container.closest('form')||container.closest('.form-content'):null;
+    if(parent){var checks=parent.querySelectorAll('.itn-check');checks.forEach(function(cb){cb.checked=false;});}
 }
 function formatTypeQtySummary(items){return items.map(function(i){return i.quantity+' '+i.type;}).join(' + ');}
 
@@ -162,20 +182,24 @@ function showDHMTScreen(){
     renderDHMTHistory();
 }
 function populateDhmtPhuDropdown(){
-    var sel=document.getElementById('dhmt_to_phu');if(!sel)return;
+    var sel=document.getElementById('dhmt_to_phu');if(!sel||!cascadingData.length)return;
     sel.innerHTML='<option value="">Select PHU...</option>';
-    var district=state.geoInfo.district;if(!district)return;
+    var district=(state.geoInfo.district||'').trim();if(!district)return;
     var phus=[];cascadingData.forEach(function(r){
-        if(r.district===district&&r.phu_name&&phus.indexOf(r.phu_name)===-1)phus.push(r.phu_name);
+        if((r.district||'').trim()===district&&r.phu&&phus.indexOf(r.phu)===-1)phus.push(r.phu);
     });
     phus.sort();phus.forEach(function(p){var o=document.createElement('option');o.value=p;o.textContent=p;sel.appendChild(o);});
+    if(phus.length===0){
+        // Fallback: show ALL PHUs across all districts
+        cascadingData.forEach(function(r){if(r.phu&&phus.indexOf(r.phu)===-1){phus.push(r.phu);var o=document.createElement('option');o.value=r.phu;o.textContent=r.phu;sel.appendChild(o);}});
+    }
 }
 function populatePhuDpDropdown(){
-    var sel=document.getElementById('phu_to_dp');if(!sel)return;
+    var sel=document.getElementById('phu_to_dp');if(!sel||!cascadingData.length)return;
     sel.innerHTML='<option value="">Select Distribution Point...</option>';
-    var chiefdom=state.geoInfo.chiefdom;if(!chiefdom)return;
+    var chiefdom=(state.geoInfo.chiefdom||'').trim();if(!chiefdom)return;
     cascadingData.forEach(function(r){
-        if(r.chiefdom===chiefdom&&r.distribution_point){var o=document.createElement('option');o.value=r.distribution_point;o.textContent=r.distribution_point;sel.appendChild(o);}
+        if((r.chiefdom||'').trim()===chiefdom&&r.distribution_point){var o=document.createElement('option');o.value=r.distribution_point;o.textContent=r.distribution_point;sel.appendChild(o);}
     });
 }
 function submitDHMT(){
@@ -267,14 +291,27 @@ function checkStockForDistribution(){
 }
 
 // VOUCHER
-function generateVoucherCode(){var dp=state.currentDP?state.currentDP.id.replace('dp','').toUpperCase():'XX';
-    var d=new Date(),date=d.getFullYear()+''+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
-    return 'VCH-'+dp.padStart(3,'0')+'-'+date+'-'+Math.random().toString(36).toUpperCase().slice(2,8);}
+// VOUCHER — removed auto-generation, now scan/type
 function generateHHId(){var dp=state.currentDP?state.currentDP.id.replace('dp','').toUpperCase():'XX';
     var el=document.getElementById('reg_hh_id');if(el)el.value='HH-'+dp.padStart(3,'0')+'-'+Date.now().toString(36).toUpperCase().slice(-6)+'-'+Math.random().toString(36).toUpperCase().slice(2,5);}
 
 // REG FORM
-function onTotalPeopleChange(){var t=parseInt(document.getElementById('reg_total_people').value)||0;showVoucherPreview(t);checkGenderSum();}
+function onTotalPeopleChange(){var t=parseInt(document.getElementById('reg_total_people').value)||0;showVoucherInputs(t);checkGenderSum();}
+function showVoucherInputs(tp){
+    var block=document.getElementById('voucherInputBlock'),info=document.getElementById('voucherInputInfo'),fields=document.getElementById('voucherInputFields');
+    if(tp<=0){block.style.display='none';return;}
+    var count;if(tp<=3)count=1;else if(tp<=5)count=2;else count=3;
+    block.style.display='block';
+    info.innerHTML='<div class="voucher-formula-text">'+tp+' people → <strong>'+count+' voucher(s)</strong> = '+count+' ITN(s). Scan or type each voucher code below.</div>';
+    fields.innerHTML='';
+    for(var i=0;i<count;i++){
+        var row=document.createElement('div');row.className='voucher-scan-row';
+        row.innerHTML='<span class="voucher-scan-label">VOUCHER '+(i+1)+'</span><input type="text" class="form-input voucher-scan-input" id="reg_voucher_'+(i+1)+'" placeholder="Scan QR or type code..." autocomplete="off">';
+        fields.appendChild(row);
+    }
+    // Auto-focus first
+    var first=document.getElementById('reg_voucher_1');if(first)first.focus();
+}
 function onGenderChange(){checkGenderSum();}
 function onVulnerableChange(){
     var t=parseInt(document.getElementById('reg_total_people').value)||0,f=parseInt(document.getElementById('reg_females').value)||0;
@@ -289,9 +326,6 @@ function checkGenderSum(){var t=parseInt(document.getElementById('reg_total_peop
         if(m+f===t){el.className='validation-note gender-check match';tx.textContent='✓ Males ('+m+') + Females ('+f+') = Total ('+t+')';}
         else{el.className='validation-note gender-check mismatch';tx.textContent='⚠ Males ('+m+') + Females ('+f+') = '+(m+f)+' ≠ Total ('+t+')';}
     }else el.style.display='none';}
-function showVoucherPreview(tp){var b=document.getElementById('voucherPreview');if(tp<=0){b.style.display='none';return;}
-    var c;if(tp<=3)c=1;else if(tp<=5)c=2;else c=3;b.style.display='block';
-    document.getElementById('voucherPreviewContent').innerHTML='<div class="voucher-formula-text">'+tp+' people → '+c+' voucher(s) = '+c+' ITN(s)</div>';}
 function captureRegGPS(){var dot=document.getElementById('regGpsDot'),text=document.getElementById('regGpsText'),coords=document.getElementById('regGpsCoords');
     if(!navigator.geolocation){if(dot)dot.className='gps-icon error';if(text)text.textContent='Not supported';return;}
     if(dot)dot.className='gps-icon loading';if(text)text.textContent='Capturing...';if(coords)coords.textContent='';
@@ -310,7 +344,20 @@ function submitRegistration(){
     if(males+females!==total)err.push('M+F must = total');if(under5>total)err.push('U5 ≤ total');if(pregnant>females)err.push('Preg ≤ females');
     if(err.length){showNotification(err[0],'error');return;}
     var count;if(total<=3)count=1;else if(total<=5)count=2;else count=3;
-    var vouchers=[];for(var i=0;i<count;i++){var code;do{code=generateVoucherCode();}while(vouchers.includes(code));vouchers.push(code);}
+    var vouchers=[];var voucherErr=false;
+    for(var vi=1;vi<=count;vi++){
+        var inp=document.getElementById('reg_voucher_'+vi);
+        var code=inp?inp.value.trim().toUpperCase():'';
+        if(!code){showNotification('Enter voucher code '+vi,'error');if(inp)inp.focus();return;}
+        if(vouchers.includes(code)){showNotification('Duplicate voucher: '+code,'error');if(inp)inp.focus();return;}
+        // Check if voucher already used in another registration
+        var alreadyUsed=false;
+        for(var ri=0;ri<state.registrations.length;ri++){
+            if(state.registrations[ri].vouchers&&state.registrations[ri].vouchers.includes(code)){alreadyUsed=true;break;}
+        }
+        if(alreadyUsed){showNotification('Voucher '+code+' already registered!','error');if(inp){inp.focus();inp.style.borderColor='#dc3545';}return;}
+        vouchers.push(code);
+    }
     var rec={id:hhId,timestamp:new Date().toISOString(),distributionPoint:state.currentDP?state.currentDP.name:'',dpId:state.currentDP?state.currentDP.id:'',
         district:state.geoInfo.district,chiefdom:state.geoInfo.chiefdom,phuName:state.geoInfo.phuName,
         registeredBy:state.currentUser?state.currentUser.name:'',userId:state.currentUser?state.currentUser.id:'',
@@ -360,7 +407,8 @@ function downloadReceiptPDF(){var el=document.getElementById('voucherReceipt');s
     }).catch(function(){showNotification('Failed','error');});}
 function closeReceipt(){document.getElementById('receiptSection').style.display='none';lastReceipt=null;
     ['reg_hh_name','reg_hh_phone','reg_total_people','reg_males','reg_females','reg_under5','reg_pregnant'].forEach(function(id){document.getElementById(id).value='';});
-    document.getElementById('voucherPreview').style.display='none';document.getElementById('genderCheck').style.display='none';
+    document.getElementById('voucherInputBlock').style.display='none';document.getElementById('voucherInputFields').innerHTML='';
+    document.getElementById('genderCheck').style.display='none';
     document.querySelectorAll('.field-error').forEach(function(el){el.textContent='';el.classList.remove('show');});
     generateHHId();captureRegGPS();window.scrollTo({top:0,behavior:'smooth'});}
 
@@ -436,14 +484,14 @@ function onDashChiefdomChange(){
     var dist=document.getElementById('dashFilterDistrict').value,chief=document.getElementById('dashFilterChiefdom').value;
     var pSel=document.getElementById('dashFilterPhu');pSel.innerHTML='<option value="">All PHUs</option>';
     document.getElementById('dashFilterDP').innerHTML='<option value="">All DPs</option>';
-    if(chief){var phus=[];cascadingData.forEach(function(r){if(r.district===dist&&r.chiefdom===chief&&r.phu_name&&phus.indexOf(r.phu_name)===-1)phus.push(r.phu_name);});
+    if(chief){var phus=[];cascadingData.forEach(function(r){if(r.district===dist&&r.chiefdom===chief&&r.phu&&phus.indexOf(r.phu)===-1)phus.push(r.phu);});
         phus.sort();phus.forEach(function(p){var o=document.createElement('option');o.value=p;o.textContent=p;pSel.appendChild(o);});}
     refreshDashboard();
 }
 function onDashPhuChange(){
     var dist=document.getElementById('dashFilterDistrict').value,chief=document.getElementById('dashFilterChiefdom').value,phu=document.getElementById('dashFilterPhu').value;
     var dpSel=document.getElementById('dashFilterDP');dpSel.innerHTML='<option value="">All DPs</option>';
-    if(phu){cascadingData.forEach(function(r){if(r.district===dist&&r.chiefdom===chief&&r.phu_name===phu&&r.distribution_point){
+    if(phu){cascadingData.forEach(function(r){if(r.district===dist&&r.chiefdom===chief&&r.phu===phu&&r.distribution_point){
         var o=document.createElement('option');o.value=r.dp_id;o.textContent=r.distribution_point;dpSel.appendChild(o);}});}
     refreshDashboard();
 }
@@ -470,7 +518,7 @@ function refreshDashboard(){var f=getDashFilter();
     var dists=filterByLocation(state.distributions,f);
     var stocks=state.itnStock.filter(function(s){
         if(f.district){var dp=cascadingData.find(function(c){return c.dp_id===s.dpId;});if(!dp||dp.district!==f.district)return false;
-            if(f.chiefdom&&dp.chiefdom!==f.chiefdom)return false;if(f.phu&&dp.phu_name!==f.phu)return false;if(f.dpId&&s.dpId!==f.dpId)return false;}
+            if(f.chiefdom&&dp.chiefdom!==f.chiefdom)return false;if(f.phu&&dp.phu!==f.phu)return false;if(f.dpId&&s.dpId!==f.dpId)return false;}
         return true;
     });
     var stockRcv=0;stocks.forEach(function(s){stockRcv+=s.quantity;});
@@ -501,7 +549,7 @@ function renderDataTable(){var filter=document.getElementById('dataFilter').valu
     else{headers=['#','Date','Batch','Type','Qty','From','DP'];
         data=state.itnStock.filter(function(s){
             if(f.district){var dp=cascadingData.find(function(c){return c.dp_id===s.dpId;});if(!dp||dp.district!==f.district)return false;
-                if(f.chiefdom&&dp.chiefdom!==f.chiefdom)return false;if(f.phu&&dp.phu_name!==f.phu)return false;if(f.dpId&&s.dpId!==f.dpId)return false;}return true;
+                if(f.chiefdom&&dp.chiefdom!==f.chiefdom)return false;if(f.phu&&dp.phu!==f.phu)return false;if(f.dpId&&s.dpId!==f.dpId)return false;}return true;
         }).map(function(s,i){return {cells:[i+1,s.date,s.batch||'—',s.type,s.quantity,s.from||'—',s.distributionPoint||''],search:(s.batch+' '+s.type+' '+s.from+' '+s.distributionPoint).toLowerCase()};});}
     if(search)data=data.filter(function(d){return d.search.includes(search);});
     if(!data.length){wrap.innerHTML='<div class="no-data">No records</div>';return;}
